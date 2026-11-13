@@ -250,21 +250,11 @@ export const getSearchPosts = async function ({
     return [];
   }
 
-  // Rerace's own search endpoint has not been confirmed.
-  // Search the event listings currently visible on its homepage.
-  const baseUrl = absoluteUrl(path);
-const separator = baseUrl.includes("?") ? "&" : "?";
-const url = `${baseUrl}${separator}_rerace_refresh=${Date.now()}`;
-
-const response = await providerContext.axios.get(url, {
-  headers: {
-    ...providerContext.commonHeaders,
-    "Cache-Control": "no-cache, no-store, must-revalidate",
-    Pragma: "no-cache",
-    Expires: "0",
-  },
-  signal,
-});
+  const posts = await fetchEventPosts(
+    "/",
+    signal,
+    providerContext,
+  );
 
   const query = searchQuery.trim().toLowerCase();
 
