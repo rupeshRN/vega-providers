@@ -102,22 +102,26 @@ function parseEvents(
 
     seenLinks.add(link);
 
-    // Move up through the event card to find its title and image.
+    // Search upward for the complete event card.
+    // Do not stop merely because an image is present.
     let $card = $anchor;
+    let $bestCard = $anchor;
+    let bestTextLength = cleanText($anchor.text()).length;
+    let foundHeading = false;
 
-    for (let depth = 0; depth < 6; depth++) {
+    for (let depth = 0; depth < 10; depth++) {
       const heading = cleanText(
         $card.find("h1, h2, h3, h4, h5").first().text(),
       );
-
       const cardText = cleanText($card.text());
 
-      const image =
-        $card.find("img").first().attr("data-src") ||
-        $card.find("img").first().attr("data-lazy-src") ||
-        $card.find("img").first().attr("src");
+      if (cardText.length > bestTextLength && cardText.length < 500) {
+        $bestCard = $card;
+        bestTextLength = cardText.length;
+      }
 
-      if (heading || image || cardText.length > 250) {
+      if (heading) {
+        foundHeading = true;
         break;
       }
 
@@ -128,6 +132,12 @@ function parseEvents(
       }
 
       $card = $parent;
+    }
+
+    if (!foundHeading) {
+      $card = $bestCard;
+    }
+
     }
 
     const $image = $card.find("img").first();
