@@ -62,6 +62,10 @@ export const catalog: Catalog[] = [
     title: "Other Sports",
     filter: "/sports/other/",
   },
+  {
+  title: "Basketball",
+  filter: "/sports/basketball/",
+},
 ];
 
 export const genres: Catalog[] = 
