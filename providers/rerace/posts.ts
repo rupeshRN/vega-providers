@@ -217,15 +217,31 @@ async function fetchEventPosts(
       ? response.data
       : String(response.data ?? "");
 
-    const posts = parseEvents(html, path, providerContext);
-  const $debug = providerContext.cheerio.load(html);
+  const posts = parseEvents(html, path, providerContext);
+
+  const desktopResponse = await providerContext.axios.get(url, {
+    headers: {
+      ...providerContext.commonHeaders,
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+    },
+    signal,
+  });
+
+  const desktopHtml =
+    typeof desktopResponse.data === "string"
+      ? desktopResponse.data
+      : String(desktopResponse.data ?? "");
+
+  const mobile$ = providerContext.cheerio.load(html);
+  const desktop$ = providerContext.cheerio.load(desktopHtml);
 
   const debugInfo = [
-    `HTML: ${html.length}`,
-    `Links: ${$debug('a[href*="/watch/"]').length}`,
-    `Nigeria: ${/Nigeria\s*vs\.?\s*Tanzania/i.test(html) ? "YES" : "NO"}`,
-    `Mobile: ${/Android|Mobile/i.test(html) ? "YES" : "NO"}`,
-    `Events: ${posts.length}`,
+    `M:${html.length}/${mobile$('a[href*="/watch/"]').length}`,
+    `D:${desktopHtml.length}/${desktop$('a[href*="/watch/"]').length}`,
+    `M-Nigeria:${/Nigeria\s*vs\.?\s*Tanzania/i.test(html)}`,
+    `D-Nigeria:${/Nigeria\s*vs\.?\s*Tanzania/i.test(desktopHtml)}`,
   ].join(" | ");
 
   if (posts.length > 0) {
@@ -233,8 +249,7 @@ async function fetchEventPosts(
   }
 
   return posts;
-}
-
+  
 export const getPosts = async function ({
   filter,
   page,
