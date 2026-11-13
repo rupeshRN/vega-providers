@@ -182,16 +182,22 @@ function parseEvents(
 
   return posts;
 }
-
 async function fetchEventPosts(
   path: string,
   signal: AbortSignal,
   providerContext: ProviderContext,
 ): Promise<Post[]> {
-  const url = absoluteUrl(path);
+  const baseUrl = absoluteUrl(path);
+  const separator = baseUrl.includes("?") ? "&" : "?";
+  const url = `${baseUrl}${separator}_rerace_refresh=${Date.now()}`;
 
   const response = await providerContext.axios.get(url, {
-    headers: providerContext.commonHeaders,
+    headers: {
+      ...providerContext.commonHeaders,
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+    },
     signal,
   });
 
