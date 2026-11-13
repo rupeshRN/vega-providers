@@ -198,10 +198,13 @@ async function fetchEventPosts(
   const baseUrl = absoluteUrl(path);
   const separator = baseUrl.includes("?") ? "&" : "?";
   const url = `${baseUrl}${separator}_rerace_refresh=${Date.now()}`;
-
   const response = await providerContext.axios.get(url, {
     headers: {
       ...providerContext.commonHeaders,
+      "User-Agent":
+        "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
+      "sec-ch-ua-mobile": "?1",
+      "sec-ch-ua-platform": '"Android"',
       "Cache-Control": "no-cache, no-store, must-revalidate",
       Pragma: "no-cache",
       Expires: "0",
