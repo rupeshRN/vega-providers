@@ -168,30 +168,117 @@ function parseEvents(
 
   return posts;
 }
-
 async function runWebViewDiagnostic(
   url: string,
   providerContext: ProviderContext,
 ): Promise<string> {
   try {
     const previousResult = await providerContext.kvStore.get<string>(
-      WEBVIEW_TEST_KEY,
+      "rerace_live_webview_diagnostic_v2",
     );
 
-    if (previousResult) {
-      return previousResult;
-    }
+    if (previousResult) return previousResult;
 
     const result = await providerContext.openWebView(url, {
-      title: "RERACE Live page diagnostic",
-      description:
-        "Please allow the Live page to load. This is a one-time diagnostic test.",
+      title: "RERACE page network diagnostic",
+      description: "Allow the page to load while its requests are inspected.",
       force: true,
       timeoutMs: 60000,
       headers: {
         ...providerContext.commonHeaders,
       },
+      injectedJavaScript: `
+        (function () {
+          setTimeout(function () {
+            var resources = performance.getEntriesByType("resource")
+              .map(function (entry) { return entry.name; })
+              .filter(function (name) {
+                return /rerace|api|ajax|json|graphql|event|live|match/i.test(name);
+              });
+
+            var scripts = Array.from(document.scripts)
+              .map(function (script) { return script.src; })
+              .filter(Boolean);
+
+            var bodyText = document.body
+              ? document.body.innerText
+              : "";
+
+            var report = {
+              url: location.href,
+              title: document.title,
+              liveHeading: /Live matches/i.test(bodyText),
+              nigeria: /Nigeria\\\\s*vs\\\\.?\\\\s*Tanzania/i.test(bodyText),
+              bodySample: bodyText.slice(0, 2500),
+              resources: resources.slice(0, 35),
+              scripts: scripts.slice(0, 20)
+            };
+
+            if (window.ReactNativeWebView) {
+              window.ReactNativeWebView.postMessage(
+                JSON.stringify({
+                  __waf: true,
+                  data: JSON.stringify(report)
+                })
+              );
+            }
+          }, 10000);
+        })();
+        true;
+      `,
     });
+
+    const rawData =
+      typeof result.data === "string"
+        ? result.data
+        : String(result.data ?? "");
+
+    let reportText = rawData;
+
+    try {
+      const outer = JSON.parse(rawData);
+      if (outer.data) reportText = String(outer.data);
+    } catch {}
+
+    let report: any = null;
+
+    try {
+      report = JSON.parse(reportText);
+    } catch {}
+
+    let diagnostic: string;
+
+    if (report) {
+      const candidates = [
+        ...(report.resources || []),
+        ...(report.scripts || []),
+      ];
+
+      diagnostic = [
+        `WV2-LIVE:${report.liveHeading}`,
+        `WV2-NIGERIA:${report.nigeria}`,
+        `WV2-RESOURCES:${(report.resources || []).length}`,
+        `WV2-SCRIPTS:${(report.scripts || []).length}`,
+        `WV2-DATA:${candidates.join(" ; ").slice(0, 900)}`,
+      ].join(" | ");
+    } else {
+      diagnostic = `WV2-RAW:${rawData.slice(0, 900)}`;
+    }
+
+    await providerContext.kvStore.set(
+      "rerace_live_webview_diagnostic_v2",
+      diagnostic,
+    );
+
+    return diagnostic;
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : String(error);
+
+    return `WV2-ERROR:${cleanText(message).slice(0, 150)}`;
+  }
+}
+
 
     const renderedHtml =
       typeof result.data === "string"
