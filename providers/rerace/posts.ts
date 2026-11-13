@@ -138,8 +138,6 @@ function parseEvents(
       $card = $bestCard;
     }
 
-    }
-
     const $image = $card.find("img").first();
 
     const imageValue =
