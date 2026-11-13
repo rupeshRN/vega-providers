@@ -249,6 +249,7 @@ async function fetchEventPosts(
   }
 
   return posts;
+}
   
 export const getPosts = async function ({
   filter,
