@@ -2,6 +2,7 @@
 import { Post, ProviderContext } from "../types";
 
 const BASE_URL = "https://www.rerace.net";
+const WEBVIEW_TEST_KEY = "rerace_live_webview_diagnostic_v1";
 
 const CATEGORY_NAMES: Record<string, string> = {
   football: "Football",
@@ -24,14 +25,8 @@ function absoluteUrl(value: string): string {
   const url = value.trim();
 
   if (!url) return "";
-
-  if (/^https?:\/\//i.test(url)) {
-    return url;
-  }
-
-  if (url.startsWith("//")) {
-    return `https:${url}`;
-  }
+  if (/^https?:\/\//i.test(url)) return url;
+  if (url.startsWith("//")) return `https:${url}`;
 
   return `${BASE_URL}${url.startsWith("/") ? "" : "/"}${url}`;
 }
@@ -41,9 +36,7 @@ function cleanText(value: string): string {
 }
 
 function getCategoryName(filter: string, cardText: string): string {
-  if (filter === "/motorsport/") {
-    return "Motorsport";
-  }
+  if (filter === "/motorsport/") return "Motorsport";
 
   const match = filter.match(/^\/sports\/([^/]+)\//);
 
@@ -90,19 +83,13 @@ function parseEvents(
     const $anchor = $(element);
     const rawHref = $anchor.attr("href") || "";
 
-    if (!rawHref.includes("/watch/")) {
-      return;
-    }
+    if (!rawHref.includes("/watch/")) return;
 
     const link = absoluteUrl(rawHref);
 
-    if (!link || seenLinks.has(link)) {
-      return;
-    }
-
+    if (!link || seenLinks.has(link)) return;
     seenLinks.add(link);
 
-    // Search upward for the complete event card.
     let $card = $anchor;
     let $bestCard = $anchor;
     let bestTextLength = cleanText($anchor.text()).length;
@@ -127,16 +114,11 @@ function parseEvents(
 
       const $parent = $card.parent();
 
-      if (!$parent.length) {
-        break;
-      }
-
+      if (!$parent.length) break;
       $card = $parent;
     }
 
-    if (!foundHeading) {
-      $card = $bestCard;
-    }
+    if (!foundHeading) $card = $bestCard;
 
     const $image = $card.find("img").first();
 
@@ -168,14 +150,12 @@ function parseEvents(
       cleanText($anchor.text()) ||
       cardText;
 
-    if (!title || title.length < 3) {
-      return;
-    }
+    if (!title || title.length < 3) return;
 
     const category = getCategoryName(filter, cardText);
     const sourceMatch = cardText.match(/(\d+)\s+sources?/i);
 
-    const post: Post = {
+    posts.push({
       title,
       link,
       image: imageUrl,
@@ -183,12 +163,68 @@ function parseEvents(
       ...(sourceMatch
         ? { cornerTag: `${sourceMatch[1]} sources` }
         : {}),
-    };
-
-    posts.push(post);
+    });
   });
 
   return posts;
+}
+
+async function runWebViewDiagnostic(
+  url: string,
+  providerContext: ProviderContext,
+): Promise<string> {
+  try {
+    const previousResult = await providerContext.kvStore.get<string>(
+      WEBVIEW_TEST_KEY,
+    );
+
+    if (previousResult) {
+      return previousResult;
+    }
+
+    const result = await providerContext.openWebView(url, {
+      title: "RERACE Live page diagnostic",
+      description:
+        "Please allow the Live page to load. This is a one-time diagnostic test.",
+      force: true,
+      timeoutMs: 60000,
+      headers: {
+        ...providerContext.commonHeaders,
+      },
+    });
+
+    const renderedHtml =
+      typeof result.data === "string"
+        ? result.data
+        : String(result.data ?? "");
+
+    const $ = providerContext.cheerio.load(renderedHtml);
+
+    const watchLinks = $('a[href*="/watch/"]').length;
+    const hasNigeria = /Nigeria\s*vs\.?\s*Tanzania/i.test(renderedHtml);
+    const isMobileUserAgent = /Android|Mobile|iPhone/i.test(
+      result.userAgent || "",
+    );
+
+    const diagnostic = [
+      `WV:${renderedHtml.length}/${watchLinks}`,
+      `WV-Nigeria:${hasNigeria ? "YES" : "NO"}`,
+      `WV-MOBILE:${isMobileUserAgent ? "YES" : "NO"}`,
+      `WV-URL:${result.url || url}`,
+    ].join(" | ");
+
+    await providerContext.kvStore.set(
+      WEBVIEW_TEST_KEY,
+      diagnostic,
+    );
+
+    return diagnostic;
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : String(error);
+
+    return `WV-ERROR:${cleanText(message).slice(0, 120)}`;
+  }
 }
 
 async function fetchEventPosts(
@@ -200,7 +236,6 @@ async function fetchEventPosts(
   const separator = baseUrl.includes("?") ? "&" : "?";
   const url = `${baseUrl}${separator}_rerace_refresh=${Date.now()}`;
 
-  // Mobile request
   const response = await providerContext.axios.get(url, {
     headers: {
       ...providerContext.commonHeaders,
@@ -222,37 +257,13 @@ async function fetchEventPosts(
 
   const posts = parseEvents(html, path, providerContext);
 
-  // Desktop request with a different cache-busting URL
-  const desktopUrl =
-    `${baseUrl}${separator}_rerace_desktop_test=${Date.now()}`;
+  if (path === "/live/" && posts.length > 0) {
+    const diagnostic = await runWebViewDiagnostic(
+      baseUrl,
+      providerContext,
+    );
 
-  const desktopResponse = await providerContext.axios.get(desktopUrl, {
-    headers: {
-      ...providerContext.commonHeaders,
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-      "Cache-Control": "no-cache, no-store, must-revalidate",
-    },
-    signal,
-  });
-
-  const desktopHtml =
-    typeof desktopResponse.data === "string"
-      ? desktopResponse.data
-      : String(desktopResponse.data ?? "");
-
-  const mobile$ = providerContext.cheerio.load(html);
-  const desktop$ = providerContext.cheerio.load(desktopHtml);
-
-  const debugInfo = [
-    `M:${html.length}/${mobile$('a[href*="/watch/"]').length}`,
-    `D:${desktopHtml.length}/${desktop$('a[href*="/watch/"]').length}`,
-    `M-Nigeria:${/Nigeria\s*vs\.?\s*Tanzania/i.test(html)}`,
-    `D-Nigeria:${/Nigeria\s*vs\.?\s*Tanzania/i.test(desktopHtml)}`,
-  ].join(" | ");
-
-  if (posts.length > 0) {
-    posts[0].cornerTag = debugInfo;
+    posts[0].cornerTag = diagnostic;
   }
 
   return posts;
@@ -270,9 +281,7 @@ export const getPosts = async function ({
   signal: AbortSignal;
   providerContext: ProviderContext;
 }): Promise<Post[]> {
-  if (page > 1) {
-    return [];
-  }
+  if (page > 1) return [];
 
   return fetchEventPosts(
     filter || "/",
@@ -293,9 +302,7 @@ export const getSearchPosts = async function ({
   signal: AbortSignal;
   providerContext: ProviderContext;
 }): Promise<Post[]> {
-  if (page > 1 || !searchQuery.trim()) {
-    return [];
-  }
+  if (page > 1 || !searchQuery.trim()) return [];
 
   const posts = await fetchEventPosts(
     "/",
