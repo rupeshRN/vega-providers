@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: rerace-provider-build-${{ github.ref }}
@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   build:
-    name: Install dependencies and build providers
+    name: Build and publish provider bundles
     runs-on: ubuntu-latest
 
     steps:
@@ -37,6 +37,19 @@ jobs:
 
       - name: Build provider bundles
         run: npm run build
+
+      - name: Publish generated bundles to main
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f dist/
+          if ! git diff --cached --quiet; then
+            git commit -m "Publish RERACE provider bundles"
+            git push
+          else
+            echo "Provider bundles are already up to date."
+          fi
 
       - name: Upload generated provider bundles
         uses: actions/upload-artifact@v4
