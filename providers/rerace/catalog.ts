@@ -4,7 +4,7 @@ import { Catalog } from "../types";
 export const catalog: Catalog[] = [
   {
     title: "Live Now",
-    filter: "/",
+    filter: "/live/",
   },
   {
     title: "Football",
