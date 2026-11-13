@@ -279,41 +279,6 @@ async function runWebViewDiagnostic(
   }
 }
 
-
-    const renderedHtml =
-      typeof result.data === "string"
-        ? result.data
-        : String(result.data ?? "");
-
-    const $ = providerContext.cheerio.load(renderedHtml);
-
-    const watchLinks = $('a[href*="/watch/"]').length;
-    const hasNigeria = /Nigeria\s*vs\.?\s*Tanzania/i.test(renderedHtml);
-    const isMobileUserAgent = /Android|Mobile|iPhone/i.test(
-      result.userAgent || "",
-    );
-
-    const diagnostic = [
-      `WV:${renderedHtml.length}/${watchLinks}`,
-      `WV-Nigeria:${hasNigeria ? "YES" : "NO"}`,
-      `WV-MOBILE:${isMobileUserAgent ? "YES" : "NO"}`,
-      `WV-URL:${result.url || url}`,
-    ].join(" | ");
-
-    await providerContext.kvStore.set(
-      WEBVIEW_TEST_KEY,
-      diagnostic,
-    );
-
-    return diagnostic;
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : String(error);
-
-    return `WV-ERROR:${cleanText(message).slice(0, 120)}`;
-  }
-}
-
 async function fetchEventPosts(
   path: string,
   signal: AbortSignal,
