@@ -1,11 +1,12 @@
+
 [
   {
-    "display_name": "EXAMPLE",
-    "value": "example",
+    "display_name": "RERACE",
+    "value": "rerace",
     "version": "1.0",
     "icon": "",
     "type": "global",
-    "hasSettings": true,
+    "hasSettings": false,
     "disabled": false
   }
 ]
