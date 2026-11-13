@@ -103,7 +103,6 @@ function parseEvents(
     seenLinks.add(link);
 
     // Search upward for the complete event card.
-    // Do not stop merely because an image is present.
     let $card = $anchor;
     let $bestCard = $anchor;
     let bestTextLength = cleanText($anchor.text()).length;
@@ -113,6 +112,7 @@ function parseEvents(
       const heading = cleanText(
         $card.find("h1, h2, h3, h4, h5").first().text(),
       );
+
       const cardText = cleanText($card.text());
 
       if (cardText.length > bestTextLength && cardText.length < 500) {
@@ -147,6 +147,7 @@ function parseEvents(
       "";
 
     const srcSet = $image.attr("srcset") || "";
+
     const firstSrcSetImage = srcSet
       ? srcSet.split(",")[0].trim().split(/\s+/)[0]
       : "";
@@ -172,7 +173,6 @@ function parseEvents(
     }
 
     const category = getCategoryName(filter, cardText);
-
     const sourceMatch = cardText.match(/(\d+)\s+sources?/i);
 
     const post: Post = {
@@ -190,6 +190,7 @@ function parseEvents(
 
   return posts;
 }
+
 async function fetchEventPosts(
   path: string,
   signal: AbortSignal,
@@ -198,6 +199,8 @@ async function fetchEventPosts(
   const baseUrl = absoluteUrl(path);
   const separator = baseUrl.includes("?") ? "&" : "?";
   const url = `${baseUrl}${separator}_rerace_refresh=${Date.now()}`;
+
+  // Mobile request
   const response = await providerContext.axios.get(url, {
     headers: {
       ...providerContext.commonHeaders,
@@ -219,7 +222,11 @@ async function fetchEventPosts(
 
   const posts = parseEvents(html, path, providerContext);
 
-  const desktopResponse = await providerContext.axios.get(url, {
+  // Desktop request with a different cache-busting URL
+  const desktopUrl =
+    `${baseUrl}${separator}_rerace_desktop_test=${Date.now()}`;
+
+  const desktopResponse = await providerContext.axios.get(desktopUrl, {
     headers: {
       ...providerContext.commonHeaders,
       "User-Agent":
@@ -250,7 +257,7 @@ async function fetchEventPosts(
 
   return posts;
 }
-  
+
 export const getPosts = async function ({
   filter,
   page,
@@ -263,8 +270,6 @@ export const getPosts = async function ({
   signal: AbortSignal;
   providerContext: ProviderContext;
 }): Promise<Post[]> {
-  // Rerace's public page pagination route has not been confirmed.
-  // Return no extra items instead of repeating page-one events.
   if (page > 1) {
     return [];
   }
