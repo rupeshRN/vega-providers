@@ -217,7 +217,22 @@ async function fetchEventPosts(
       ? response.data
       : String(response.data ?? "");
 
-  return parseEvents(html, path, providerContext);
+    const posts = parseEvents(html, path, providerContext);
+  const $debug = providerContext.cheerio.load(html);
+
+  const debugInfo = [
+    `HTML: ${html.length}`,
+    `Links: ${$debug('a[href*="/watch/"]').length}`,
+    `Nigeria: ${/Nigeria\s*vs\.?\s*Tanzania/i.test(html) ? "YES" : "NO"}`,
+    `Mobile: ${/Android|Mobile/i.test(html) ? "YES" : "NO"}`,
+    `Events: ${posts.length}`,
+  ].join(" | ");
+
+  if (posts.length > 0) {
+    posts[0].cornerTag = debugInfo;
+  }
+
+  return posts;
 }
 
 export const getPosts = async function ({
