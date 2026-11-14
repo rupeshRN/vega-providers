@@ -2,7 +2,6 @@
 import { Post, ProviderContext } from "../types";
 
 const BASE_URL = "https://www.rerace.net";
-const WEBVIEW_TEST_KEY = "rerace_live_webview_diagnostic_v1";
 
 const CATEGORY_NAMES: Record<string, string> = {
   football: "Football",
@@ -152,6 +151,9 @@ function parseEvents(
 
     if (!title || title.length < 3) return;
 
+    // The live feed includes upcoming events; only list events that are live.
+    if (filter === "/live/" && !/\bLIVE\b/i.test(cardText)) return;
+
     const category = getCategoryName(filter, cardText);
     const sourceMatch = cardText.match(/(\d+)\s+sources?/i);
 
@@ -168,115 +170,45 @@ function parseEvents(
 
   return posts;
 }
-async function runWebViewDiagnostic(
+async function fetchRenderedMobilePage(
   url: string,
   providerContext: ProviderContext,
 ): Promise<string> {
+  const result = await providerContext.openWebView(url, {
+    title: "Refresh live RERACE events",
+    description: "Loading the live event list from RERACE.",
+    force: true,
+    timeoutMs: 45000,
+    headers: {
+      ...providerContext.commonHeaders,
+      "User-Agent":
+        "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
+    },
+    injectedJavaScript: `
+      (function () {
+        setTimeout(function () {
+          if (!window.ReactNativeWebView || !document.documentElement) return;
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            __waf: true,
+            data: document.documentElement.outerHTML
+          }));
+        }, 8000);
+      })();
+      true;
+    `,
+  });
+
+  const rawData =
+    typeof result.data === "string"
+      ? result.data
+      : String(result.data ?? "");
+
   try {
-    const previousResult = await providerContext.kvStore.get<string>(
-      "rerace_live_webview_diagnostic_v2",
-    );
+    const envelope = JSON.parse(rawData);
+    if (typeof envelope.data === "string") return envelope.data;
+  } catch {}
 
-    if (previousResult) return previousResult;
-
-    const result = await providerContext.openWebView(url, {
-      title: "RERACE page network diagnostic",
-      description: "Allow the page to load while its requests are inspected.",
-      force: true,
-      timeoutMs: 60000,
-      headers: {
-        ...providerContext.commonHeaders,
-      },
-      injectedJavaScript: `
-        (function () {
-          setTimeout(function () {
-            var resources = performance.getEntriesByType("resource")
-              .map(function (entry) { return entry.name; })
-              .filter(function (name) {
-                return /rerace|api|ajax|json|graphql|event|live|match/i.test(name);
-              });
-
-            var scripts = Array.from(document.scripts)
-              .map(function (script) { return script.src; })
-              .filter(Boolean);
-
-            var bodyText = document.body
-              ? document.body.innerText
-              : "";
-
-            var report = {
-              url: location.href,
-              title: document.title,
-              liveHeading: /Live matches/i.test(bodyText),
-              nigeria: /Nigeria\\\\s*vs\\\\.?\\\\s*Tanzania/i.test(bodyText),
-              bodySample: bodyText.slice(0, 2500),
-              resources: resources.slice(0, 35),
-              scripts: scripts.slice(0, 20)
-            };
-
-            if (window.ReactNativeWebView) {
-              window.ReactNativeWebView.postMessage(
-                JSON.stringify({
-                  __waf: true,
-                  data: JSON.stringify(report)
-                })
-              );
-            }
-          }, 10000);
-        })();
-        true;
-      `,
-    });
-
-    const rawData =
-      typeof result.data === "string"
-        ? result.data
-        : String(result.data ?? "");
-
-    let reportText = rawData;
-
-    try {
-      const outer = JSON.parse(rawData);
-      if (outer.data) reportText = String(outer.data);
-    } catch {}
-
-    let report: any = null;
-
-    try {
-      report = JSON.parse(reportText);
-    } catch {}
-
-    let diagnostic: string;
-
-    if (report) {
-      const candidates = [
-        ...(report.resources || []),
-        ...(report.scripts || []),
-      ];
-
-      diagnostic = [
-        `WV2-LIVE:${report.liveHeading}`,
-        `WV2-NIGERIA:${report.nigeria}`,
-        `WV2-RESOURCES:${(report.resources || []).length}`,
-        `WV2-SCRIPTS:${(report.scripts || []).length}`,
-        `WV2-DATA:${candidates.join(" ; ").slice(0, 900)}`,
-      ].join(" | ");
-    } else {
-      diagnostic = `WV2-RAW:${rawData.slice(0, 900)}`;
-    }
-
-    await providerContext.kvStore.set(
-      "rerace_live_webview_diagnostic_v2",
-      diagnostic,
-    );
-
-    return diagnostic;
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : String(error);
-
-    return `WV2-ERROR:${cleanText(message).slice(0, 150)}`;
-  }
+  return rawData;
 }
 
 async function fetchEventPosts(
@@ -309,13 +241,21 @@ async function fetchEventPosts(
 
   const posts = parseEvents(html, path, providerContext);
 
-  if (path === "/live/" && posts.length > 0) {
-    const diagnostic = await runWebViewDiagnostic(
-      baseUrl,
-      providerContext,
-    );
-
-    posts[0].cornerTag = diagnostic;
+  // The HTTP response can contain an older desktop rendering while the mobile
+  // page has the current live list. Use the rendered mobile DOM when the live
+  // section is present but its active event cards are missing from the response.
+  if (
+    path === "/live/" &&
+    posts.length === 0 &&
+    /live matches|live now/i.test(html)
+  ) {
+    try {
+      const mobileHtml = await fetchRenderedMobilePage(baseUrl, providerContext);
+      const mobilePosts = parseEvents(mobileHtml, path, providerContext);
+      if (mobilePosts.length > 0) return mobilePosts;
+    } catch {
+      // Keep the provider usable when the interactive WebView is unavailable.
+    }
   }
 
   return posts;
