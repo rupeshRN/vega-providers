@@ -170,47 +170,6 @@ function parseEvents(
 
   return posts;
 }
-async function fetchRenderedMobilePage(
-  url: string,
-  providerContext: ProviderContext,
-): Promise<string> {
-  const result = await providerContext.openWebView(url, {
-    title: "Refresh live RERACE events",
-    description: "Loading the live event list from RERACE.",
-    force: true,
-    timeoutMs: 45000,
-    headers: {
-      ...providerContext.commonHeaders,
-      "User-Agent":
-        "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
-    },
-    injectedJavaScript: `
-      (function () {
-        setTimeout(function () {
-          if (!window.ReactNativeWebView || !document.documentElement) return;
-          window.ReactNativeWebView.postMessage(JSON.stringify({
-            __waf: true,
-            data: document.documentElement.outerHTML
-          }));
-        }, 8000);
-      })();
-      true;
-    `,
-  });
-
-  const rawData =
-    typeof result.data === "string"
-      ? result.data
-      : String(result.data ?? "");
-
-  try {
-    const envelope = JSON.parse(rawData);
-    if (typeof envelope.data === "string") return envelope.data;
-  } catch {}
-
-  return rawData;
-}
-
 async function fetchEventPosts(
   path: string,
   signal: AbortSignal,
@@ -240,23 +199,6 @@ async function fetchEventPosts(
       : String(response.data ?? "");
 
   const posts = parseEvents(html, path, providerContext);
-
-  // The HTTP response can contain an older desktop rendering while the mobile
-  // page has the current live list. Use the rendered mobile DOM when the live
-  // section is present but its active event cards are missing from the response.
-  if (
-    path === "/live/" &&
-    posts.length === 0 &&
-    /live matches|live now/i.test(html)
-  ) {
-    try {
-      const mobileHtml = await fetchRenderedMobilePage(baseUrl, providerContext);
-      const mobilePosts = parseEvents(mobileHtml, path, providerContext);
-      if (mobilePosts.length > 0) return mobilePosts;
-    } catch {
-      // Keep the provider usable when the interactive WebView is unavailable.
-    }
-  }
 
   return posts;
 }
